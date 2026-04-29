@@ -1,0 +1,37 @@
+# Logs and temp files
+*.log
+*.bak
+*.tmp
+
+# Editors / IDEs
+.vs/
+.vscode/
+!.vscode/extensions.json
+.idea/
+
+# Build output
+bin/
+obj/
+out/
+
+# PowerShell
+*.psd1.bak
+
+# Local environment
+.env
+.env.*
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Claude Code (per-machine settings and bulky local skills)
+.claude/settings.local.json
+.claude/skills/
+
+# Vendored module dependencies
+Modules/
+
+# Pester output
+testResults*.xml
+coverage*.xml
