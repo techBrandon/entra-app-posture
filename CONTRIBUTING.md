@@ -2,11 +2,25 @@
 
 Thanks for your interest in `entra-app-posture`. This file is a skeleton — most sections are placeholders until the project is further along.
 
-## Proposing a new check
+## Proposing a new control or check
 
-1. Identify the next free `EAPC-NNN` ID by reading [`docs/controls.md`](docs/controls.md). IDs are sequential, three-digit zero-padded, and **never reused** once assigned.
-2. Add a row to `docs/controls.md` with status `Planned` before opening a PR with code.
-3. _TBD_ — link to the check authoring guide once it exists.
+The project uses a two-tier registry in [`docs/controls.md`](docs/controls.md): controls (`MSR-NN`) aggregate the Microsoft recommendations we track, and checks (`EAPC-NNN`) are the discrete conditions that a check function verifies. A check can contribute to more than one control.
+
+### Adding a control (`MSR-NN`)
+
+Rare — typically only when Microsoft publishes new guidance worth tracking.
+
+1. Identify the next free `MSR-NN` by reading [`docs/controls.md`](docs/controls.md).
+2. Add a row to the `## Controls` table with status `Planned`. Put the verbatim MS recommendation phrasing in the `Source recommendation` column for traceability.
+
+### Adding a check (`EAPC-NNN`)
+
+1. Identify the next free `EAPC-NNN` by reading [`docs/controls.md`](docs/controls.md).
+2. Add a row to the `## Checks` table with status `Planned` before opening a PR with code.
+3. In the `Controls` column, list every `MSR-NN` the check contributes to (comma-separated). One check may contribute to multiple controls.
+4. _TBD_ — link to the check authoring guide once it exists.
+
+IDs in both namespaces are sequential, zero-padded, and **never reused** once a control or check ships in code.
 
 ## Dev setup
 
