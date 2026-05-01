@@ -51,7 +51,21 @@ _TBD_ — defaults to the PowerShell conventions in the maintainer's global stan
 
 ## Testing
 
-_TBD_ — Pester 5+ with `*.Tests.ps1` colocated next to the source under test.
+Pester 5+ with `*.Tests.ps1` colocated under `tests/` mirroring the source layout.
+
+Run the suite via the project invoker:
+
+```sh
+pwsh ./tests/Invoke.ps1
+```
+
+The invoker sets `$env:TMPDIR` to `tests/.testdrive/` (gitignored) so Pester's TestDrive doesn't depend on `/tmp` write access. The change is scoped to that PowerShell process only.
+
+To filter, pass `-Path`:
+
+```sh
+pwsh ./tests/Invoke.ps1 -Path ./tests/Checks/EAPC-014.Tests.ps1
+```
 
 ## Pull request checklist
 

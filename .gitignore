@@ -35,3 +35,6 @@ Modules/
 # Pester output
 testResults*.xml
 coverage*.xml
+
+# Pester project-local TestDrive (see tests/Invoke.ps1)
+tests/.testdrive/
