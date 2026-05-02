@@ -1,6 +1,12 @@
 # Slice 1 test plan — EAPC-001 and EAPC-014
 
-This plan covers the two checks shipped in slice 1 ([EAPC-001](../src/Checks/EAPC-001.ps1) and [EAPC-014](../src/Checks/EAPC-014.ps1)). It enumerates every Pass / Fail / NA / Error path, the malformed-data edge cases that should produce `Error` (not Pass or Fail), the tenant configuration needed to exercise each path live, and the recommended code hardening based on the gaps the matrices expose.
+This plan covers the two checks shipped in slice 1 ([EAPC-001](../Checks/EAPC-001.ps1) and [EAPC-014](../Checks/EAPC-014.ps1)). It enumerates every Pass / Fail / NA / Error path, the malformed-data edge cases that should produce `Error` (not Pass or Fail), the tenant configuration needed to exercise each path live, and the recommended code hardening based on the gaps the matrices expose.
+
+## Status (as of the simplification rewrite)
+
+- The "Recommended hardening" sections below have **shipped**. EAPC-001 now does explicit `-isnot [bool]` validation; EAPC-014 wraps each app's evaluation in its own `try/catch`. The "Current behavior" columns in the matrices below describe the *original* slice-1 implementation that prompted the hardening — read them as the rationale for the current code, not as a description of it.
+- Pester coverage went from 18 → 30 tests in the simplification commit. The new cases include defensive-shape paths for EAPC-001 and the per-app Error isolation case for EAPC-014.
+- Live-tenant verification still uses the seeding tables and verification commands below.
 
 ## Scope and approach
 
@@ -171,11 +177,34 @@ The current Pester suite covers cases 1, 2, 3, 6, 17, 25, 28, 31, 33, 35 (mapped
 - Cases 26, 27, 29, 30, 34 (bucket variants).
 - Case 36 (per-app Error isolation) — once hardening lands.
 
-Mocking strategy stays the same: `InModuleScope EntraAppPosture { Mock Get-MgApplication { ... } }` returning synthetic `[PSCustomObject]` shapes from `New-FakeApp`.
+Mocking strategy after the simplification rewrite: checks are scripts (not module functions), so Pester's `Mock` works directly on the cmdlets they call — no `InModuleScope` needed. Pattern:
+
+```powershell
+BeforeEach {
+    Mock Connect-MgGraph {}
+    Mock Get-MgContext { [PSCustomObject]@{ TenantId='tx'; Scopes=@('Application.Read.All') } }
+}
+It '...' {
+    Mock Get-MgApplication { New-FakeApp -WebUris @('http://example.com') }
+    $f = & $script:CheckPath
+    $f.Status | Should -Be 'Fail'
+}
+```
+
+The `New-FakeApp` helper lives in the test file's `BeforeAll` block and returns synthetic `[PSCustomObject]` shapes that mirror `Get-MgApplication`'s output.
 
 ## Live-tenant test setup
 
 Use a non-production tenant. The seed creates one app registration per scenario the check needs to exercise live. Names are deliberate — they should sort together and be obvious to delete after testing.
+
+> **Heads-up on caching during iterative testing.** `Helpers.ps1` caches Graph responses in `$global:EapCache` for the lifetime of the `pwsh` process. If you toggle a tenant setting and re-run a check from the **same** `pwsh` session, the second run reads the stale cached response. Pass `-RefreshData` to force a re-fetch:
+>
+> ```pwsh
+> pwsh ./Run-EntraAppPosture.ps1 -CheckId EAPC-001 -RefreshData
+> pwsh ./Checks/EAPC-001.ps1 -RefreshData
+> ```
+>
+> Equivalent: `$global:EapCache = @{}` between runs, or open a fresh `pwsh` (child processes spawned from a non-pwsh shell get their own cache).
 
 ### EAPC-001 (tenant policy)
 
@@ -184,11 +213,11 @@ Run twice, toggling the tenant-wide policy:
 ```pwsh
 # Pass scenario — confirm Status='Pass'
 Update-MgPolicyAuthorizationPolicy -DefaultUserRolePermissions @{ allowedToCreateApps = $false }
-Invoke-EntraAppPosture -CheckId EAPC-001
+pwsh ./Checks/EAPC-001.ps1
 
 # Fail scenario — confirm Status='Fail'
 Update-MgPolicyAuthorizationPolicy -DefaultUserRolePermissions @{ allowedToCreateApps = $true }
-Invoke-EntraAppPosture -CheckId EAPC-001
+pwsh ./Checks/EAPC-001.ps1
 ```
 
 Restore the tenant's intended setting before leaving.
@@ -209,29 +238,80 @@ Create the following app registrations. Capture each one's `AppId` for verificat
 | `eap-test-014-fail-mixed` | `https://safe.example.com`, `http://bad.example.com` | — | — | Fail (1 offender, RedirectUriCount=2) |
 | `eap-test-014-fail-cross-bucket` | `https://safe.example.com` | `http://bad-spa.example.com` | `http://bad-pc.example.com` | Fail (2 offenders, RedirectUriCount=3) |
 
-Some of these (custom schemes, IPv6, malformed URIs) cannot be added through the Azure portal UI — it validates client-side. Use Microsoft Graph directly:
+Several of these (custom schemes, loopback IPs, suffix tricks) cannot be added through the Azure portal UI — it validates client-side. Provision via Microsoft Graph directly. Run this once against your test tenant:
 
 ```pwsh
-New-MgApplication -DisplayName 'eap-test-014-fail-loopback-ip' -Web @{ RedirectUris = @('http://127.0.0.1/cb') }
+# Requires Application.ReadWrite.All (broader than the read-only scope EAPC-014 itself uses).
+Connect-MgGraph -Scopes Application.ReadWrite.All -NoWelcome
+
+$testApps = @(
+    @{ Name = 'eap-test-014-pass-https'
+       Web = @{ RedirectUris = @('https://example.com/cb') } }
+
+    @{ Name = 'eap-test-014-pass-localhost'
+       Web = @{ RedirectUris = @('http://localhost:8080/cb') } }
+
+    @{ Name         = 'eap-test-014-pass-customscheme'
+       PublicClient = @{ RedirectUris = @('ms-appx://contoso.example.com') } }
+
+    @{ Name = 'eap-test-014-na' }   # no buckets at all
+
+    @{ Name = 'eap-test-014-fail-http'
+       Web = @{ RedirectUris = @('http://example.com/cb') } }
+
+    @{ Name = 'eap-test-014-fail-loopback-ip'
+       Web = @{ RedirectUris = @('http://127.0.0.1/cb') } }
+
+    @{ Name = 'eap-test-014-fail-suffix-trick'
+       Web = @{ RedirectUris = @('http://localhost.evil.com/cb') } }
+
+    @{ Name = 'eap-test-014-fail-mixed'
+       Web = @{ RedirectUris = @('https://safe.example.com', 'http://bad.example.com') } }
+
+    @{ Name         = 'eap-test-014-fail-cross-bucket'
+       Web          = @{ RedirectUris = @('https://safe.example.com') }
+       Spa          = @{ RedirectUris = @('http://bad-spa.example.com') }
+       PublicClient = @{ RedirectUris = @('http://bad-pc.example.com') } }
+)
+
+foreach ($app in $testApps) {
+    if (Get-MgApplication -Filter "displayName eq '$($app.Name)'" -Top 1 -ErrorAction SilentlyContinue) {
+        Write-Host "skip   $($app.Name) (already exists)"
+        continue
+    }
+
+    $params = @{ DisplayName = $app.Name }
+    foreach ($bucket in 'Web', 'Spa', 'PublicClient') {
+        if ($app.ContainsKey($bucket)) { $params[$bucket] = $app[$bucket] }
+    }
+
+    $created = New-MgApplication @params
+    Write-Host "create $($app.Name) → AppId $($created.AppId)"
+}
 ```
 
-Cases that the portal blocks but Graph allows are exactly the ones an attacker would use, so seeding via Graph is the realistic exercise.
+Re-running the script is safe — the `displayName eq` filter skips entries already in the tenant. The script uses `Application.ReadWrite.All` (broader than EAPC-014's read-only scope), so you may want to disconnect afterwards: `Disconnect-MgGraph` then reconnect with the read-only set when you run the check.
+
+The cases the portal blocks but Graph allows (custom schemes, loopback IPs, suffix smuggling) are exactly the patterns an attacker would use — seeding via Graph is the realistic exercise.
 
 ### Verification commands
 
 ```pwsh
-Import-Module ./src/EntraAppPosture.psd1 -Force
-
 # Spot-check by app
-Invoke-EntraAppPosture -CheckId EAPC-014 |
+pwsh ./Run-EntraAppPosture.ps1 -CheckId EAPC-014 |
     Where-Object ObjectName -Like 'eap-test-014-*' |
     Select-Object ObjectName, Status, @{n='Offenders';e={$_.Evidence.OffendingUris.Uri -join ', '}} |
     Format-Table -AutoSize
 
 # Round-trip JSON check
-Invoke-EntraAppPosture -CheckId EAPC-014 |
+pwsh ./Run-EntraAppPosture.ps1 -CheckId EAPC-014 |
     Where-Object ObjectName -Like 'eap-test-014-*' |
     ConvertTo-Json -Depth 5
+
+# Single-check execution (no orchestrator)
+pwsh ./Checks/EAPC-014.ps1 |
+    Where-Object ObjectName -Like 'eap-test-014-*' |
+    Format-Table -AutoSize
 ```
 
 Compare each row against the expected column in the seeding table. Anything that doesn't match is either a bug in the check or a seed misconfiguration — investigate before continuing.
@@ -239,17 +319,20 @@ Compare each row against the expected column in the seeding table. Anything that
 ### Cleanup
 
 ```pwsh
-Get-MgApplication -All -Filter "startsWith(displayName, 'eap-test-014-')" |
+# Requires Application.ReadWrite.All; client-side Where-Object avoids the
+# eventual-consistency header that Graph's startsWith filter would require.
+Get-MgApplication -All |
+    Where-Object DisplayName -Like 'eap-test-014-*' |
     ForEach-Object { Remove-MgApplication -ApplicationId $_.Id -Confirm }
 ```
 
 ## Recommended sequence
 
-1. Land the EAPC-001 and EAPC-014 hardening (cases 3–8, 11, 36, 41) in a single change.
-2. Add the corresponding Pester tests to bring the suite from 18 → ~40 cases.
+1. ~~Land the EAPC-001 and EAPC-014 hardening (cases 3–8, 11, 36, 41) in a single change.~~ **Shipped** (cases 3–8 and 11 for EAPC-001; case 36 for EAPC-014).
+2. ~~Add the corresponding Pester tests.~~ **Shipped** — suite is now 30 tests.
 3. Seed the test tenant per the table above.
 4. Run live verification; reconcile any mismatches.
 5. Update [`docs/controls.md`](../docs/controls.md) to flip EAPC-001 and EAPC-014 from `Planned` to `Implemented`.
 6. Tear down the seeded apps.
 
-Step 1 is the highest-value single change — it closes the false-negative gaps (cases 3–8) which are the failure modes most likely to mislead a security audit.
+Steps 3–6 are the remaining work for marking these checks `Implemented` per the project bar (`CLAUDE.md`: "verified against a real tenant").

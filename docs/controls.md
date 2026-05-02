@@ -47,7 +47,7 @@ The `Controls` column lists every `MSR-NN` the check contributes to (comma-separ
 
 | EAPC-ID | Controls | Title | Status |
 |---|---|---|---|
-| EAPC-001 | MSR-01 | Users cannot register applications | Planned |
+| EAPC-001 | MSR-01 | Users cannot register applications | Implemented |
 | EAPC-002 | MSR-01 | Users cannot consent to applications | Planned |
 | EAPC-003 | MSR-01 | Application Developer role members are dedicated administrative accounts | Planned |
 | EAPC-004 | MSR-01 | Application Administrator role members are dedicated administrative accounts | Planned |
@@ -60,7 +60,7 @@ The `Controls` column lists every `MSR-NN` the check contributes to (comma-separ
 | EAPC-011 | MSR-04 | App registrations have no wildcard redirect URIs | Planned |
 | EAPC-012 | MSR-04, MSR-06 | App registrations have no redirect URIs on reclaimable shared hosting domains | Planned |
 | EAPC-013 | MSR-04 | App registrations have no URL-shortener redirect URIs | Planned |
-| EAPC-014 | MSR-04 | App registrations have no HTTP (non-localhost) redirect URIs | Planned |
+| EAPC-014 | MSR-04 | App registrations have no HTTP (non-localhost) redirect URIs | Implemented |
 | EAPC-015 | MSR-05 | Service principals have no wildcard redirect URIs | Planned |
 | EAPC-016 | MSR-05 | Service principals have no redirect URIs on reclaimable shared hosting domains | Planned |
 | EAPC-017 | MSR-05 | Service principals have no URL-shortener redirect URIs | Planned |
